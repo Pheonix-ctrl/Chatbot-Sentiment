@@ -50,7 +50,8 @@ class MemoryManager:
             # Keep the most recent messages
             self.sessions[session_id] = self.sessions[session_id][-self.max_messages:]
             
-        logger.info(f"Added {role} message to session {session_id[:8]}...")
+        logger.info(f"Added {role} message to session {session_id}")
+
         
     def get_conversation_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -79,7 +80,7 @@ class MemoryManager:
                 "content": msg["content"]
             })
             
-        logger.info(f"Retrieved {len(openai_messages)} messages for session {session_id[:8]}...")
+            logger.info(f"Retrieved {len(openai_messages)} messages for session {session_id}")
         return openai_messages
         
     def get_last_sql_query(self, session_id: str) -> Optional[str]:
@@ -126,7 +127,7 @@ class MemoryManager:
         for session_id in sessions_to_remove:
             del self.sessions[session_id]
             del self.session_timestamps[session_id]
-            logger.info(f"Cleaned up old session {session_id[:8]}...")
+            logger.info(f"Cleaned up old session {session_id}")
             
     def get_session_info(self, session_id: str) -> Dict[str, Any]:
         """
@@ -149,7 +150,7 @@ class MemoryManager:
         """Clear all history for a specific session"""
         if session_id in self.sessions:
             del self.sessions[session_id]
-        logger.info(f"Cleared session {session_id[:8]}...")
+        logger.info(f"Cleared session {session_id}")
 
 
 # Global memory manager instance

@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from openai import OpenAI
 
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, FORMATTING_PROMPT
 from database import execute_sql, DatabaseError
 from memory import (
     get_conversation_history, 
@@ -41,7 +41,8 @@ class OpenAIHandler:
         Returns:
             Dictionary with response and debug information
         """
-        logger.info(f"🔍 Processing message for session {session_id[:8]}...")
+        logger.info(f"🔍 Processing message for session {session_id}")
+
         logger.info(f"📝 User Input: {user_message}")
         
         try:
@@ -177,23 +178,38 @@ class OpenAIHandler:
             # Execute the SQL query
             sql_results = execute_sql(sql_query)
             logger.info(f"💾 Database Results: {len(sql_results)} rows returned")
+            logger.info(f"🗂️ RAW DATABASE RESULTS: {json.dumps(sql_results, default=str, indent=2)}")
+
+            # Get the current conversation history for the formatting call
+            conversation_history = get_conversation_history(session_id, limit=10)
             
-            # Create the tool response for OpenAI
-            tool_response = {
-                "tool_call_id": tool_call_id,
-                "output": json.dumps(sql_results, default=str, indent=2)
-            }
+            # Get the original user message (last message in history)
+            original_user_message = conversation_history[-1]["content"] if conversation_history else ""
             
-            # Get the formatted response from OpenAI
-            formatted_response = self._get_formatted_response(sql_results, session_id, tool_response)
+            # Build the second OpenAI call with FULL context + separate formatting prompt
+            format_messages = [
+                {"role": "system", "content": FORMATTING_PROMPT}  # Separate formatting prompt
+            ]
+            
+            # Add ALL conversation history (previous questions + formatted responses)
+            format_messages.extend(conversation_history[:-1])  # Exclude current user message to avoid duplication
+            
+            # Add the original user question + database results
+            format_messages.append({
+                "role": "user", 
+                "content": f"{original_user_message}\n\nDatabase Results:\n{json.dumps(sql_results, default=str, indent=2)}"
+            })
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=format_messages,
+                temperature=0.7
+            )
+            
+            formatted_response = response.choices[0].message.content or "I couldn't format the results properly."
             
             # Save to memory with metadata
-            add_assistant_message(
-                session_id, 
-                formatted_response,
-                sql_query=sql_query,
-                sql_results=sql_results
-            )
+            add_assistant_message(session_id, formatted_response, sql_query=sql_query, sql_results=sql_results)
             
             logger.info(f"✅ Final Response: {formatted_response[:100]}...")
             
@@ -241,38 +257,6 @@ class OpenAIHandler:
             }
         }
     
-    def _get_formatted_response(self, sql_results: List[Dict], session_id: str, tool_response: Dict) -> str:
-        """Get formatted response from OpenAI after SQL execution"""
-        try:
-            # Create a follow-up call to format the results
-            format_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Format these SQL results into a natural language response:"},
-                {"role": "assistant", "content": None, "tool_calls": [
-                    {"id": tool_response["tool_call_id"], "type": "function", "function": {"name": "execute_sql", "arguments": "{}"}}
-                ]},
-                {"role": "tool", "content": tool_response["output"], "tool_call_id": tool_response["tool_call_id"]}
-            ]
-            
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=format_messages,
-                temperature=0.7
-            )
-            
-            return response.choices[0].message.content or "I couldn't format the results properly."
-            
-        except Exception as e:
-            logger.error(f"Error formatting results: {e}")
-            # Fallback to basic formatting
-            if not sql_results:
-                return "No matching results found."
-            elif len(sql_results) == 1 and len(sql_results[0]) == 1:
-                # Single value result
-                value = list(sql_results[0].values())[0]
-                return f"Result: {value}"
-            else:
-                return f"Found {len(sql_results)} results. {json.dumps(sql_results[:3], default=str, indent=2)}"
 
 
 # Global handler instance

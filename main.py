@@ -83,7 +83,8 @@ async def chat_endpoint(request: ChatRequest):
     This replaces your n8n webhook
     """
     try:
-        logger.info(f"Received chat request for session {request.sessionId[:8]}...")
+        logger.info(f"Received chat request for session {request.sessionId}")
+
         
         # Validate inputs
         if not request.message.strip():
@@ -96,17 +97,20 @@ async def chat_endpoint(request: ChatRequest):
         result = process_chat_message(request.message, request.sessionId)
         
         # Format response to match your React interface expectations
+        # Format response to match your React interface expectations
         response = {
-            "message": {
-                "role": "assistant",
-                "content": result["response"]
-            },
-            "debug": result.get("debug", {}),
-            "session_info": get_session_info(request.sessionId)
+            "role": "assistant",
+            "content": {
+                "response": result["response"]
+            }
         }
-        
-        logger.info(f"Successfully processed message for session {request.sessionId[:8]}")
+
+        logger.info(f"Successfully processed message for session {request.sessionId}")
+
         return ChatResponse(message=response)
+        
+
+
         
     except HTTPException:
         raise
